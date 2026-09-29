@@ -15,7 +15,7 @@ if (-not (Test-Path $Python)) {
 if (-not $Version) {
     $Version = & $Python -c "from app import __version__; print(__version__)"
     if ($LASTEXITCODE -ne 0 -or -not $Version) {
-        throw "无法读取 app.__version__"
+        throw "Failed to read app.__version__"
     }
     $Version = $Version.Trim()
 }
@@ -25,12 +25,12 @@ if (-not $SkipBuild -or -not (Test-Path $Exe)) {
     Write-Host "==> Building application..."
     & (Join-Path $PSScriptRoot "build.ps1")
     if ($LASTEXITCODE -ne 0) {
-        throw "PyInstaller 构建失败"
+        throw "PyInstaller build failed"
     }
 }
 
 if (-not (Test-Path $Exe)) {
-    throw "未找到 $Exe"
+    throw "Missing executable: $Exe"
 }
 
 function Find-ISCC {
@@ -56,11 +56,7 @@ function Find-ISCC {
 
 $ISCC = Find-ISCC
 if (-not $ISCC) {
-    throw @"
-未找到 Inno Setup 编译器 (ISCC.exe)。
-请安装 Inno Setup 6：https://jrsoftware.org/isinfo.php
-或设置环境变量 INNOSETUP_PATH 指向 ISCC.exe。
-"@
+    throw "ISCC.exe not found. Install Inno Setup 6 from https://jrsoftware.org/isinfo.php or set INNOSETUP_PATH."
 }
 
 $Iss = Join-Path $Root "installer\windows\Tun2ProxyGUI.iss"
@@ -73,12 +69,12 @@ if (-not (Test-Path $Icon)) {
 Write-Host "==> Compiling installer (v$Version)..."
 & $ISCC "/DMyAppVersion=$Version" $Iss
 if ($LASTEXITCODE -ne 0) {
-    throw "Inno Setup 编译失败"
+    throw "Inno Setup compile failed"
 }
 
 $Setup = Join-Path $Root "dist\Tun2ProxyGUI-Setup-$Version-windows-x86_64.exe"
 if (-not (Test-Path $Setup)) {
-    throw "未找到安装包: $Setup"
+    throw "Missing installer: $Setup"
 }
 
 Write-Host ""

@@ -118,7 +118,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -File ./scripts/build_installer.ps1 -SkipBuild -Version "${{ steps.version.outputs.version }}"
+          & ./scripts/build_installer.ps1 -SkipBuild -Version "${{ steps.version.outputs.version }}"
 
       - name: Package artifact (Windows)
         if: runner.os == 'Windows'
