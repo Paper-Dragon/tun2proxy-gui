@@ -6,6 +6,8 @@
 
 当前版本：**0.0.1**（捆绑 tun2proxy **v0.8.3**）
 
+![Tun2Proxy GUI 主界面](docs/screenshot.png)
+
 ## 功能
 
 - 配置并启动 / 停止 `tun2proxy-bin`
@@ -134,6 +136,7 @@ tun2proxy-gui/
   main.py
   app/
   bin/windows|linux|macos/<arch>/
+  docs/
   resources/
   .github/workflows/build.yml
   build.spec
