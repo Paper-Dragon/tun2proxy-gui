@@ -4,7 +4,7 @@
 
 支持：**Windows / Linux / macOS**（x86_64 与 aarch64）
 
-当前版本：**0.0.1**（捆绑 tun2proxy **v0.8.3**）
+当前版本：**0.0.2**（捆绑 tun2proxy **v0.8.3**）
 
 ![Tun2Proxy GUI 主界面](docs/screenshot.png)
 
@@ -114,13 +114,13 @@ bash ./scripts/build.sh
 |------|------|
 | `push` / `pull_request`（`main`） | 构建 Win / Linux / macOS 产物；Windows 额外上传 `Tun2ProxyGUI-Setup-windows-x86_64` 安装包 Artifact |
 | `workflow_dispatch` | 手动构建 |
-| 推送 tag `v*`（如 `v0.0.1`） | 构建全部平台并创建 GitHub Release（含 `.zip` 与 `.exe` 安装包） |
+| 推送 tag `v*`（如 `v0.0.2`） | 构建全部平台并创建 GitHub Release（含 `.zip` 与 `.exe` 安装包） |
 
 发版示例：
 
 ```bash
-git tag v0.0.1
-git push origin v0.0.1
+git tag v0.0.2
+git push origin v0.0.2
 ```
 
 ## 使用说明
