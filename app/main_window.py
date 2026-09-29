@@ -50,6 +50,7 @@ class MainWindow(QWidget):
 
         self._config = load_config()
         self._force_quit = False
+        self._toggle_guard = False
         self._manager = ProcessManager(self)
         self._manager.state_changed.connect(self._on_state_changed)
         self._manager.log_line.connect(self._append_log)
@@ -161,6 +162,7 @@ class MainWindow(QWidget):
         status_box = QFrame()
         status_box.setObjectName("SidebarStatusBox")
         status_box.setCursor(Qt.CursorShape.PointingHandCursor)
+        status_box.setToolTip("点击连接 / 断开代理")
         box_layout = QHBoxLayout(status_box)
         box_layout.setContentsMargins(8, 6, 8, 6)
         box_layout.setSpacing(8)
@@ -174,7 +176,7 @@ class MainWindow(QWidget):
         self.sidebar_status_text.setObjectName("SidebarStatusText")
         box_layout.addWidget(self.sidebar_status_text, 1)
 
-        status_box.mousePressEvent = lambda e: self.nav_dashboard.click()
+        status_box.mousePressEvent = self._on_sidebar_status_pressed
 
         layout.addWidget(status_box)
         return sidebar
@@ -661,24 +663,38 @@ class MainWindow(QWidget):
             self.chk_autostart.blockSignals(False)
             QMessageBox.warning(self, "自启设置失败", str(exc))
 
+    def _on_sidebar_status_pressed(self, event) -> None:
+        event.accept()
+        self.toggle_proxy()
+
     def toggle_proxy(self) -> None:
-        if self._manager.is_running():
-            self._manager.stop()
+        if self._toggle_guard or self._force_quit:
             return
-        if not is_admin() and not self._offer_elevation():
-            return
+        self._toggle_guard = True
         try:
-            self._config = self._ui_to_config()
-        except ValueError as exc:
-            QMessageBox.critical(self, "启动失败", str(exc))
-            self._append_log(f"[ERR] {exc}")
-            return
-        save_config(self._config)
-        self._update_stat_summaries(self._config)
-        error = self._manager.start(self._config)
-        if error:
-            QMessageBox.critical(self, "启动失败", error)
-            self._append_log(f"[ERR] {error}")
+            if self._manager.is_stopping():
+                return
+            if self._manager.is_active():
+                self._manager.stop()
+                return
+            if not is_admin() and not self._offer_elevation():
+                return
+            try:
+                self._config = self._ui_to_config()
+            except ValueError as exc:
+                QMessageBox.critical(self, "启动失败", str(exc))
+                self._append_log(f"[ERR] {exc}")
+                return
+            save_config(self._config)
+            self._update_stat_summaries(self._config)
+            error = self._manager.start(self._config)
+            if error and not self._manager.is_active():
+                QMessageBox.critical(self, "启动失败", error)
+                self._append_log(f"[ERR] {error}")
+            elif error:
+                self._append_log(f"[ERR] {error}")
+        finally:
+            self._toggle_guard = False
 
     def _offer_elevation(self) -> bool:
         if sys.platform == "win32":
@@ -718,7 +734,7 @@ class MainWindow(QWidget):
         return False
 
     def _on_state_changed(self, state: ProxyState) -> None:
-        running = state in (ProxyState.RUNNING, ProxyState.STARTING)
+        connected = state in (ProxyState.RUNNING, ProxyState.STARTING, ProxyState.STOPPING)
         data = {
             ProxyState.STOPPED: (
                 "stopped",
@@ -740,6 +756,13 @@ class MainWindow(QWidget):
                 "代理隧道已建立",
                 "所有系统网络流量正通过 TUN 虚拟设备分流转发。",
                 "#16a34a",
+            ),
+            ProxyState.STOPPING: (
+                "stopping",
+                "正在断开...",
+                "正在关闭代理连接",
+                "正在停止 TUN 进程并清理路由规则...",
+                "#d97706",
             ),
             ProxyState.ERROR: (
                 "error",
@@ -769,14 +792,19 @@ class MainWindow(QWidget):
         self.sidebar_dot.setStyleSheet(f"color: {dot_color}; font-size: 10px;")
         self.sidebar_status_text.setText(badge_text)
 
-        self.btn_toggle.setText("断开连接" if running else "连接代理")
-        self.btn_toggle.setProperty("running", "true" if running else "false")
+        if state == ProxyState.STOPPING:
+            self.btn_toggle.setText("正在断开...")
+            self.btn_toggle.setEnabled(False)
+        else:
+            self.btn_toggle.setEnabled(True)
+            self.btn_toggle.setText("断开连接" if connected else "连接代理")
+        self.btn_toggle.setProperty("running", "true" if connected else "false")
         self.btn_toggle.style().unpolish(self.btn_toggle)
         self.btn_toggle.style().polish(self.btn_toggle)
 
         self._tray.update_state(
             state,
-            running=self._manager.is_running() or state == ProxyState.STARTING,
+            running=connected,
         )
 
     def _on_exited(self, code: int) -> None:
@@ -803,8 +831,10 @@ class MainWindow(QWidget):
             self.hide()
             self._tray.show_message("Tun2Proxy", "已最小化到托盘，右键托盘图标可退出")
             return
-        if self._manager.is_running():
-            self._manager.stop()
+        self._force_quit = True
+        self._toggle_guard = True
+        if self._manager.is_active() or self._manager.is_stopping():
+            self._manager.stop(blocking=True)
         self._config = self._ui_to_config()
         save_config(self._config)
         self._tray.hide()

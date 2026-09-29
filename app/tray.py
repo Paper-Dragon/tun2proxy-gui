@@ -50,10 +50,16 @@ class TrayController:
             self._on_show()
 
     def update_state(self, state: ProxyState, running: bool) -> None:
-        if running:
+        if state == ProxyState.STOPPING:
+            self.action_toggle.setText("正在断开...")
+            self.action_toggle.setEnabled(False)
+            tip = "Tun2Proxy — 正在断开"
+        elif running:
+            self.action_toggle.setEnabled(True)
             self.action_toggle.setText("断开")
             tip = "Tun2Proxy — 已连接"
         else:
+            self.action_toggle.setEnabled(True)
             self.action_toggle.setText("连接")
             if state == ProxyState.ERROR:
                 tip = "Tun2Proxy — 连接失败"

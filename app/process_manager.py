@@ -5,7 +5,7 @@ import stat
 import sys
 from enum import Enum
 
-from PySide6.QtCore import QObject, QProcess, Signal
+from PySide6.QtCore import QCoreApplication, QElapsedTimer, QEventLoop, QObject, QProcess, QTimer, Signal
 
 from .config import AppConfig
 from .elevate import is_admin
@@ -18,6 +18,7 @@ class ProxyState(Enum):
     STOPPED = "stopped"
     STARTING = "starting"
     RUNNING = "running"
+    STOPPING = "stopping"
     ERROR = "error"
 
 
@@ -67,6 +68,11 @@ class ProcessManager(QObject):
         super().__init__(parent)
         self._process: QProcess | None = None
         self._state = ProxyState.STOPPED
+        self._stopping = False
+        self._completing = False
+        self._kill_timer = QTimer(self)
+        self._kill_timer.setSingleShot(True)
+        self._kill_timer.timeout.connect(self._force_kill)
 
     @property
     def state(self) -> ProxyState:
@@ -75,14 +81,65 @@ class ProcessManager(QObject):
     def is_running(self) -> bool:
         return self._process is not None and self._process.state() == QProcess.ProcessState.Running
 
+    def is_active(self) -> bool:
+        return self._process is not None or self._state in (
+            ProxyState.STARTING,
+            ProxyState.RUNNING,
+            ProxyState.STOPPING,
+        )
+
+    def is_stopping(self) -> bool:
+        return self._stopping or self._state == ProxyState.STOPPING
+
     def _set_state(self, state: ProxyState) -> None:
         if self._state != state:
             self._state = state
             self.state_changed.emit(state)
 
+    def _owns(self, proc: object) -> bool:
+        return proc is self._process
+
+    def _detach_process(self, proc: QProcess) -> None:
+        for signal, slot in (
+            (proc.readyReadStandardOutput, self._on_stdout),
+            (proc.readyReadStandardError, self._on_stderr),
+            (proc.started, self._on_started),
+            (proc.finished, self._on_finished),
+            (proc.errorOccurred, self._on_error),
+        ):
+            try:
+                signal.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
+        if self._process is proc:
+            self._process = None
+        proc.deleteLater()
+
+    def _complete_stop(self) -> None:
+        if self._completing:
+            return
+        self._completing = True
+        try:
+            self._kill_timer.stop()
+            proc = self._process
+            self._process = None
+            self._stopping = False
+            if proc is not None:
+                self._detach_process(proc)
+            self._set_state(ProxyState.STOPPED)
+            self.log_line.emit("=== 进程已停止 ===")
+        finally:
+            self._completing = False
+
     def start(self, config: AppConfig) -> str | None:
-        if self.is_running():
-            return "代理已在运行"
+        if self._stopping:
+            return "正在停止代理，请稍候"
+        if self._process is not None or self._state in (
+            ProxyState.STARTING,
+            ProxyState.RUNNING,
+            ProxyState.STOPPING,
+        ):
+            return "代理已在运行或正在启动"
 
         if not is_admin():
             if sys.platform == "win32":
@@ -105,43 +162,90 @@ class ProcessManager(QObject):
 
         _ensure_executable(exe)
 
-        self._process = QProcess(self)
-        self._process.setWorkingDirectory(str(workdir))
-        self._process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        self._process.readyReadStandardOutput.connect(self._on_stdout)
-        self._process.readyReadStandardError.connect(self._on_stderr)
-        self._process.started.connect(self._on_started)
-        self._process.finished.connect(self._on_finished)
-        self._process.errorOccurred.connect(self._on_error)
+        proc = QProcess(self)
+        proc.setWorkingDirectory(str(workdir))
+        proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        proc.readyReadStandardOutput.connect(self._on_stdout)
+        proc.readyReadStandardError.connect(self._on_stderr)
+        proc.started.connect(self._on_started)
+        proc.finished.connect(self._on_finished)
+        proc.errorOccurred.connect(self._on_error)
+        self._process = proc
 
         args = config.to_cli_args()
         self._set_state(ProxyState.STARTING)
         self.log_line.emit(f"=== 启动: {exe.name} {' '.join(args)} ===")
-        self._process.start(str(exe), args)
+        if self._process is not proc or self._stopping:
+            return None
+        proc.start(str(exe), args)
         return None
 
-    def stop(self, timeout_ms: int = 3000) -> None:
-        if not self._process:
-            self._set_state(ProxyState.STOPPED)
+    def stop(self, timeout_ms: int = 3000, *, blocking: bool = False) -> None:
+        if self._stopping:
+            if blocking:
+                self._drain_until_stopped(timeout_ms + 2000)
             return
-        if self._process.state() == QProcess.ProcessState.Running:
-            self.log_line.emit("=== 正在停止进程 ===")
-            self._process.terminate()
-            if not self._process.waitForFinished(timeout_ms):
-                self.log_line.emit("=== 强制结束进程 ===")
-                self._process.kill()
-                self._process.waitForFinished(2000)
-        self._process = None
-        self._set_state(ProxyState.STOPPED)
-        self.log_line.emit("=== 进程已停止 ===")
+        proc = self._process
+        if proc is None:
+            if self._state != ProxyState.STOPPED:
+                self._set_state(ProxyState.STOPPED)
+            return
+
+        self._stopping = True
+        self._set_state(ProxyState.STOPPING)
+
+        if proc.state() == QProcess.ProcessState.NotRunning:
+            self._complete_stop()
+            return
+
+        self.log_line.emit("=== 正在停止进程 ===")
+        if proc.state() == QProcess.ProcessState.Starting:
+            proc.kill()
+        else:
+            proc.terminate()
+            self._kill_timer.start(timeout_ms)
+
+        if blocking:
+            self._drain_until_stopped(timeout_ms + 2000)
+
+    def _drain_until_stopped(self, timeout_ms: int) -> None:
+        elapsed = QElapsedTimer()
+        elapsed.start()
+        flags = QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+        while self._process is not None and elapsed.elapsed() < timeout_ms:
+            QCoreApplication.processEvents(flags, 50)
+        if self._process is not None and self._stopping:
+            self._force_kill()
+            deadline = elapsed.elapsed() + 1000
+            while self._process is not None and elapsed.elapsed() < deadline:
+                QCoreApplication.processEvents(flags, 50)
+        if self._process is not None and self._stopping:
+            self._complete_stop()
+
+    def _force_kill(self) -> None:
+        proc = self._process
+        if not self._stopping or proc is None:
+            return
+        if proc.state() != QProcess.ProcessState.NotRunning:
+            self.log_line.emit("=== 强制结束进程 ===")
+            proc.kill()
 
     def _on_started(self) -> None:
+        if not self._owns(self.sender()) or self._stopping:
+            return
         self._set_state(ProxyState.RUNNING)
         self.log_line.emit("=== 进程已启动 ===")
 
     def _on_finished(self, exit_code: int, _status: QProcess.ExitStatus) -> None:
+        proc = self.sender()
+        if not self._owns(proc):
+            return
+        if self._stopping:
+            self._complete_stop()
+            return
         self.log_line.emit(f"=== 进程退出，状态码: {exit_code} ===")
-        self._process = None
+        if isinstance(proc, QProcess):
+            self._detach_process(proc)
         if exit_code == 0:
             self._set_state(ProxyState.STOPPED)
         else:
@@ -149,10 +253,13 @@ class ProcessManager(QObject):
         self.exited.emit(exit_code)
 
     def _on_error(self, error: QProcess.ProcessError) -> None:
-        msg = self._process.errorString() if self._process else error.name
+        proc = self.sender()
+        if not self._owns(proc) or self._stopping:
+            return
+        msg = proc.errorString() if isinstance(proc, QProcess) else error.name
         self.log_line.emit(f"[ERR] 进程错误: {error.name} — {msg}")
-        if error == QProcess.ProcessError.FailedToStart:
-            self._process = None
+        if error == QProcess.ProcessError.FailedToStart and isinstance(proc, QProcess):
+            self._detach_process(proc)
             self._set_state(ProxyState.ERROR)
 
     def _emit_output(self, prefix: str, raw: bytes) -> None:

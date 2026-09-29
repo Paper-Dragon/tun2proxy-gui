@@ -109,7 +109,8 @@ QFrame#HeroCard[state="error"] {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ffffff, stop:1 #fef2f2);
 }}
 
-QFrame#HeroCard[state="starting"] {{
+QFrame#HeroCard[state="starting"],
+QFrame#HeroCard[state="stopping"] {{
     border: 1px solid #fde047;
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ffffff, stop:1 #fefce8);
 }}
@@ -126,7 +127,8 @@ QLabel#StatusBadge[state="stopped"] {{
     color: #64748b;
 }}
 
-QLabel#StatusBadge[state="starting"] {{
+QLabel#StatusBadge[state="starting"],
+QLabel#StatusBadge[state="stopping"] {{
     background-color: #fef3c7;
     color: #b45309;
 }}
