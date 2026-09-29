@@ -102,8 +102,11 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-installer.exe'
-          curl.exe -fsSL -o $installer 'https://jrsoftware.org/download.php/is.exe'
+          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
+          curl.exe -fsSL -o $installer 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe'
+          if (-not (Test-Path $installer) -or ((Get-Item $installer).Length -lt 1MB)) {
+            throw "Inno Setup installer download failed or looks invalid: $installer"
+          }
           Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
           $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $iscc)) {
