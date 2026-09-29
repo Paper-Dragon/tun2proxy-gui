@@ -161,6 +161,11 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
       - name: Download all artifacts
         uses: actions/download-artifact@v6
         with:
@@ -173,11 +178,52 @@ jobs:
           ls -lah upload
           test -n "$(find upload -maxdepth 1 -type f -name '*.exe' | head -n 1)"
 
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          PREV_TAG="$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          {
+            echo "## Tun2Proxy GUI v${VERSION}"
+            echo
+            echo "### Highlights"
+            echo
+            echo "- Windows 引导式安装程序（\`.exe\` Setup），可选桌面快捷方式与开机自启"
+            echo "- GitHub Actions 发版同时提供便携 \`zip\` 与 Windows Setup 安装包"
+            echo "- 修复代理启停竞态，停止时界面不再卡住"
+            echo
+            echo "### Downloads"
+            echo
+            echo "| 文件 | 说明 |"
+            echo "|------|------|"
+            echo "| \`Tun2ProxyGUI-Setup-${VERSION}-windows-x86_64.exe\` | Windows 引导式安装包 |"
+            echo "| \`Tun2ProxyGUI-windows-x86_64.zip\` | Windows 便携版 |"
+            echo "| \`Tun2ProxyGUI-linux-x86_64.zip\` | Linux 便携版 |"
+            echo "| \`Tun2ProxyGUI-macos-aarch64.zip\` | macOS Apple Silicon 便携版 |"
+            echo
+            if [[ -n "${PREV_TAG}" ]]; then
+              echo "### Changes since ${PREV_TAG}"
+              echo
+              git log --pretty=format:'- %s (%h)' "${PREV_TAG}..${GITHUB_REF_NAME}"
+              echo
+              echo
+              echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${GITHUB_REF_NAME}"
+            else
+              echo "### Commits"
+              echo
+              git log --pretty=format:'- %s (%h)' "${GITHUB_REF_NAME}"
+              echo
+            fi
+          } > release-notes.md
+          cat release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: upload/*
-          generate_release_notes: true
+          body_path: release-notes.md
           fail_on_unmatched_files: true
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
