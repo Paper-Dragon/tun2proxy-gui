@@ -1,14 +1,14 @@
-"""Manage the tun2proxy-bin.exe child process."""
-
 from __future__ import annotations
 
 import re
+import stat
+import sys
 from enum import Enum
 
 from PySide6.QtCore import QObject, QProcess, Signal
 
 from .config import AppConfig
-from .paths import bin_dir, tun2proxy_exe
+from .paths import bin_dir, tun2proxy_bin
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
@@ -25,7 +25,6 @@ def strip_ansi(text: str) -> str:
 
 
 def validate_proxy_url(url: str) -> str | None:
-    """Return an error message if invalid, else None."""
     value = url.strip()
     if not value:
         return "请输入代理地址"
@@ -38,7 +37,6 @@ def validate_proxy_url(url: str) -> str | None:
         or lowered.startswith("https://")
     ):
         return "代理地址需以 socks5://、socks4://、socks4a:// 或 http:// 开头"
-    # Require host:port after scheme (allow userinfo)
     rest = value.split("://", 1)[1]
     if "@" in rest:
         rest = rest.rsplit("@", 1)[-1]
@@ -47,8 +45,20 @@ def validate_proxy_url(url: str) -> str | None:
     return None
 
 
+def _ensure_executable(path) -> None:
+    if sys.platform == "win32":
+        return
+    try:
+        mode = path.stat().st_mode
+        if mode & stat.S_IXUSR:
+            return
+        path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    except OSError:
+        pass
+
+
 class ProcessManager(QObject):
-    state_changed = Signal(object)  # ProxyState
+    state_changed = Signal(object)
     log_line = Signal(str)
     exited = Signal(int)
 
@@ -70,7 +80,6 @@ class ProcessManager(QObject):
             self.state_changed.emit(state)
 
     def start(self, config: AppConfig) -> str | None:
-        """Start tun2proxy. Returns error string on failure."""
         if self.is_running():
             return "代理已在运行"
 
@@ -78,13 +87,15 @@ class ProcessManager(QObject):
         if err:
             return err
 
-        exe = tun2proxy_exe()
+        exe = tun2proxy_bin()
         if not exe.exists():
             return f"找不到 tun2proxy 可执行文件:\n{exe}"
 
-        workdir = bin_dir()
+        workdir = exe.parent if exe.parent.exists() else bin_dir()
         if not workdir.exists():
             return f"找不到 bin 目录:\n{workdir}"
+
+        _ensure_executable(exe)
 
         self._process = QProcess(self)
         self._process.setWorkingDirectory(str(workdir))

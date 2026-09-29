@@ -1,0 +1,141 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TUN2PROXY_VERSION: v0.8.3
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  build:
+    name: ${{ matrix.artifact }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            arch: x86_64
+            artifact: Tun2ProxyGUI-windows-x86_64
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x86_64
+            artifact: Tun2ProxyGUI-linux-x86_64
+          - os: macos-14
+            platform: macos
+            arch: aarch64
+            artifact: Tun2ProxyGUI-macos-aarch64
+          - os: macos-13
+            platform: macos
+            arch: x86_64
+            artifact: Tun2ProxyGUI-macos-x86_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install Linux packaging deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libegl1 \
+            libxkbcommon0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0 \
+            libxcb-xfixes0
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Fetch tun2proxy binaries
+        shell: bash
+        env:
+          TUN2PROXY_PLATFORM: ${{ matrix.platform }}
+          TUN2PROXY_ARCH: ${{ matrix.arch }}
+          TUN2PROXY_DOWNLOAD_PROXY: ""
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            powershell -ExecutionPolicy Bypass -File ./scripts/fetch_binaries.ps1
+          else
+            bash ./scripts/fetch_binaries.sh
+          fi
+
+      - name: Ensure icon
+        run: python ./scripts/gen_icon.py
+
+      - name: Build with PyInstaller
+        run: python -m PyInstaller --noconfirm --clean build.spec
+
+      - name: Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/Tun2ProxyGUI/* -DestinationPath "${{ matrix.artifact }}.zip" -Force
+
+      - name: Package artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          (
+            cd dist
+            zip -r "../${{ matrix.artifact }}.zip" Tun2ProxyGUI
+          )
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Flatten release assets
+        run: |
+          mkdir -p upload
+          find release-assets -type f -name '*.zip' -exec cp -v {} upload/ \;
+          ls -lah upload
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: upload/*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

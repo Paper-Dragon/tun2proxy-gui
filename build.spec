@@ -1,17 +1,55 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for Tun2Proxy GUI (Windows onedir)."""
 
+import platform
+import sys
 from pathlib import Path
 
 block_cipher = None
 root = Path(SPECPATH)
+
+
+def _platform_key() -> str:
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "linux"
+
+
+def _arch_key() -> str:
+    machine = platform.machine().lower()
+    if machine in ("amd64", "x86_64", "x64"):
+        return "x86_64"
+    if machine in ("arm64", "aarch64"):
+        return "aarch64"
+    if machine in ("i386", "i686", "x86"):
+        return "i686"
+    return machine or "unknown"
+
+
+def _bin_datas() -> list[tuple[str, str]]:
+    key = _platform_key()
+    arch = _arch_key()
+    candidates = [
+        root / "bin" / key / arch,
+        root / "bin" / key,
+        root / "bin",
+    ]
+    for src in candidates:
+        if src.exists():
+            if src == root / "bin":
+                return [(str(src), "bin")]
+            rel = src.relative_to(root / "bin").as_posix()
+            return [(str(src), f"bin/{rel}")]
+    return [(str(root / "bin"), "bin")]
+
 
 a = Analysis(
     [str(root / "main.py")],
     pathex=[str(root)],
     binaries=[],
     datas=[
-        (str(root / "bin"), "bin"),
+        *_bin_datas(),
         (str(root / "resources"), "resources"),
     ],
     hiddenimports=[],
@@ -27,10 +65,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
+exe_kwargs = dict(
     exclude_binaries=True,
     name="Tun2ProxyGUI",
     debug=False,
@@ -43,8 +78,19 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    uac_admin=True,
-    icon=str(root / "resources" / "icon.ico"),
+)
+
+if sys.platform == "win32":
+    exe_kwargs["uac_admin"] = True
+    exe_kwargs["icon"] = str(root / "resources" / "icon.ico")
+elif (root / "resources" / "icon.png").exists():
+    exe_kwargs["icon"] = str(root / "resources" / "icon.png")
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    **exe_kwargs,
 )
 
 coll = COLLECT(

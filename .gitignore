@@ -9,3 +9,5 @@ build/
 .mypy_cache/
 .ruff_cache/
 *.log
+.cursor/
+.tmp-bin/
