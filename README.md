@@ -4,7 +4,7 @@
 
 支持：**Windows / Linux / macOS**（x86_64 与 aarch64）
 
-当前版本：**1.1.0**（捆绑 tun2proxy **v0.8.3**）
+当前版本：**0.0.1**（捆绑 tun2proxy **v0.8.3**）
 
 ## 功能
 
@@ -102,13 +102,13 @@ bash ./scripts/build.sh
 |------|------|
 | `push` / `pull_request`（`main`） | 构建 Win / Linux / macOS 产物并上传 Artifact |
 | `workflow_dispatch` | 手动构建 |
-| 推送 tag `v*`（如 `v1.1.0`） | 构建全部平台并创建 GitHub Release |
+| 推送 tag `v*`（如 `v0.0.1`） | 构建全部平台并创建 GitHub Release |
 
 发版示例：
 
 ```bash
-git tag v1.1.0
-git push origin v1.1.0
+git tag v0.0.1
+git push origin v0.0.1
 ```
 
 ## 使用说明
