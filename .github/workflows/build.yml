@@ -90,11 +90,44 @@ jobs:
       - name: Build with PyInstaller
         run: python -m PyInstaller --noconfirm --clean build.spec
 
+      - name: Read app version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python -c 'from app import __version__; print(__version__)')"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-installer.exe'
+          curl.exe -fsSL -o $installer 'https://jrsoftware.org/download.php/is.exe'
+          Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) {
+            throw "ISCC.exe not found after installing Inno Setup: $iscc"
+          }
+          "INNOSETUP_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File ./scripts/build_installer.ps1 -SkipBuild -Version "${{ steps.version.outputs.version }}"
+
       - name: Package artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Compress-Archive -Path dist/Tun2ProxyGUI/* -DestinationPath "${{ matrix.artifact }}.zip" -Force
+          $setupName = "Tun2ProxyGUI-Setup-${{ steps.version.outputs.version }}-windows-x86_64.exe"
+          $setup = Join-Path 'dist' $setupName
+          if (-not (Test-Path $setup)) {
+            throw "Installer not found: $setup"
+          }
+          Copy-Item $setup -Destination $setupName
 
       - name: Package artifact (Unix)
         if: runner.os != 'Windows'
@@ -104,11 +137,19 @@ jobs:
             zip -r "../${{ matrix.artifact }}.zip" Tun2ProxyGUI
           )
 
-      - name: Upload artifact
+      - name: Upload portable zip
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}.zip
+          if-no-files-found: error
+
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v6
+        with:
+          name: Tun2ProxyGUI-Setup-windows-x86_64
+          path: Tun2ProxyGUI-Setup-*-windows-x86_64.exe
           if-no-files-found: error
 
   release:
@@ -125,13 +166,14 @@ jobs:
       - name: Flatten release assets
         run: |
           mkdir -p upload
-          find release-assets -type f -name '*.zip' -exec cp -v {} upload/ \;
+          find release-assets -type f \( -name '*.zip' -o -name '*.exe' \) -exec cp -v {} upload/ \;
           ls -lah upload
+          test -n "$(find upload -maxdepth 1 -type f -name '*.exe' | head -n 1)"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: upload/*.zip
+          files: upload/*
           generate_release_notes: true
           fail_on_unmatched_files: true
         env:

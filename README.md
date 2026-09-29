@@ -83,8 +83,11 @@ python3 -m venv .venv
 ### 本地
 
 ```powershell
-# Windows
+# Windows（便携目录）
 powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
+
+# Windows（引导式安装程序，依赖 Inno Setup 6）
+powershell -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1
 ```
 
 ```bash
@@ -92,9 +95,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 bash ./scripts/build.sh
 ```
 
-产物目录：`dist/Tun2ProxyGUI/`。打包仅捆绑当前平台/架构的 `bin/`。
+产物：
 
-> Windows 打包产物启用 `uac_admin`，运行时会弹出 UAC。
+| 产物 | 路径 |
+|------|------|
+| 便携目录 | `dist/Tun2ProxyGUI/` |
+| Windows 安装包 | `dist/Tun2ProxyGUI-Setup-<version>-windows-x86_64.exe` |
+
+打包仅捆绑当前平台/架构的 `bin/`。
+
+> Windows 打包产物启用 `uac_admin`，运行时会弹出 UAC。安装程序默认以管理员权限安装到「程序文件」，可选桌面快捷方式与开机自启。
 
 ### GitHub Actions
 
@@ -102,9 +112,9 @@ bash ./scripts/build.sh
 
 | 触发 | 行为 |
 |------|------|
-| `push` / `pull_request`（`main`） | 构建 Win / Linux / macOS 产物并上传 Artifact |
+| `push` / `pull_request`（`main`） | 构建 Win / Linux / macOS 产物；Windows 额外上传 `Tun2ProxyGUI-Setup-windows-x86_64` 安装包 Artifact |
 | `workflow_dispatch` | 手动构建 |
-| 推送 tag `v*`（如 `v0.0.1`） | 构建全部平台并创建 GitHub Release |
+| 推送 tag `v*`（如 `v0.0.1`） | 构建全部平台并创建 GitHub Release（含 `.zip` 与 `.exe` 安装包） |
 
 发版示例：
 
@@ -137,10 +147,12 @@ tun2proxy-gui/
   app/
   bin/windows|linux|macos/<arch>/
   docs/
+  installer/windows/Tun2ProxyGUI.iss
   resources/
   .github/workflows/build.yml
   build.spec
   scripts/build.ps1
+  scripts/build_installer.ps1
   scripts/build.sh
   scripts/fetch_binaries.ps1
   scripts/fetch_binaries.sh
