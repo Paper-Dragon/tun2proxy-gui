@@ -38,17 +38,13 @@ jobs:
             platform: macos
             arch: aarch64
             artifact: Tun2ProxyGUI-macos-aarch64
-          - os: macos-13
-            platform: macos
-            arch: x86_64
-            artifact: Tun2ProxyGUI-macos-x86_64
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -67,7 +63,8 @@ jobs:
             libxcb-render-util0 \
             libxcb-shape0 \
             libxcb-xinerama0 \
-            libxcb-xfixes0
+            libxcb-xfixes0 \
+            zip
 
       - name: Install Python deps
         run: |
@@ -108,7 +105,7 @@ jobs:
           )
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}.zip
@@ -121,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: release-assets
 

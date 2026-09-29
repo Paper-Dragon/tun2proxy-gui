@@ -1,5 +1,3 @@
-"""Generate multi-size application icon from resources/icon.png (or draw fallback)."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -29,6 +27,12 @@ def make_ico_from_png(
 
 
 if __name__ == "__main__":
+    if ICO.exists() and ICO.stat().st_size > 0:
+        print(f"keep existing {ICO}")
+        raise SystemExit(0)
     if not PNG.exists():
         raise SystemExit(f"missing source image: {PNG}")
-    make_ico_from_png(PNG, ICO)
+    try:
+        make_ico_from_png(PNG, ICO)
+    except ImportError:
+        raise SystemExit("Pillow is required to generate icon.ico; install pillow or commit resources/icon.ico")
