@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent, QFont, QIcon
 from PySide6.QtWidgets import (
@@ -26,6 +28,7 @@ from PySide6.QtWidgets import (
 from . import __version__
 from . import autostart
 from .config import AppConfig, load_config, normalize_virtual_dns_pool, save_config
+from .elevate import is_admin, relaunch_as_admin
 from .paths import icon_path
 from .process_manager import ProcessManager, ProxyState
 from .styles import APP_STYLESHEET
@@ -95,21 +98,21 @@ class MainWindow(QWidget):
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(168)
+        sidebar.setFixedWidth(148)
 
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(10, 16, 10, 14)
+        layout.setContentsMargins(8, 14, 8, 12)
         layout.setSpacing(8)
 
         brand = QHBoxLayout()
         brand.setSpacing(6)
 
         mark = QLabel()
-        mark.setFixedSize(22, 22)
+        mark.setFixedSize(20, 20)
         mark.setScaledContents(True)
         icon = icon_path()
         if icon.exists():
-            mark.setPixmap(QIcon(str(icon)).pixmap(22, 22))
+            mark.setPixmap(QIcon(str(icon)).pixmap(20, 20))
         else:
             mark.setText("T2")
             mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -117,15 +120,14 @@ class MainWindow(QWidget):
 
         title = QLabel("Tun2Proxy")
         title.setObjectName("BrandTitle")
-        brand.addWidget(title)
+        brand.addWidget(title, 1)
+
+        layout.addLayout(brand)
 
         version = QLabel(f"v{__version__}")
         version.setObjectName("BrandVersion")
-        brand.addWidget(version)
-        brand.addStretch()
-
-        layout.addLayout(brand)
-        layout.addSpacing(12)
+        layout.addWidget(version)
+        layout.addSpacing(10)
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
@@ -160,7 +162,7 @@ class MainWindow(QWidget):
         status_box.setObjectName("SidebarStatusBox")
         status_box.setCursor(Qt.CursorShape.PointingHandCursor)
         box_layout = QHBoxLayout(status_box)
-        box_layout.setContentsMargins(8, 7, 8, 7)
+        box_layout.setContentsMargins(8, 6, 8, 6)
         box_layout.setSpacing(8)
 
         self.sidebar_dot = QLabel("●")
@@ -663,6 +665,8 @@ class MainWindow(QWidget):
         if self._manager.is_running():
             self._manager.stop()
             return
+        if not is_admin() and not self._offer_elevation():
+            return
         try:
             self._config = self._ui_to_config()
         except ValueError as exc:
@@ -675,6 +679,43 @@ class MainWindow(QWidget):
         if error:
             QMessageBox.critical(self, "启动失败", error)
             self._append_log(f"[ERR] {error}")
+
+    def _offer_elevation(self) -> bool:
+        if sys.platform == "win32":
+            body = (
+                "启动代理需要管理员权限以创建 Wintun 网卡并配置路由。\n\n"
+                "是否以管理员身份重新启动？"
+            )
+            fail_hint = "请手动右键「以管理员身份运行」。"
+        elif sys.platform == "darwin":
+            body = (
+                "启动代理需要管理员权限以创建 TUN 设备并配置路由。\n\n"
+                "是否输入密码以提升权限后重新启动？"
+            )
+            fail_hint = "请使用管理员密码手动启动。"
+        else:
+            body = (
+                "启动代理需要 root 权限以创建 TUN 设备并配置路由。\n\n"
+                "是否以提升权限重新启动？"
+            )
+            fail_hint = "请使用 sudo / pkexec 手动启动。"
+
+        reply = QMessageBox.question(
+            self,
+            "需要管理员权限",
+            body,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            self._append_log("[ERR] 已取消：当前未以提升权限运行，无法启动代理")
+            return False
+        if relaunch_as_admin():
+            QApplication.instance().quit()
+            return False
+        QMessageBox.critical(self, "提权失败", f"无法以提升权限启动。{fail_hint}")
+        self._append_log(f"[ERR] 提权失败。{fail_hint}")
+        return False
 
     def _on_state_changed(self, state: ProxyState) -> None:
         running = state in (ProxyState.RUNNING, ProxyState.STARTING)

@@ -27,7 +27,7 @@ QFrame#Sidebar {{
 }}
 
 QLabel#BrandTitle {{
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
     color: #0f172a;
     letter-spacing: -0.2px;
@@ -40,6 +40,7 @@ QLabel#BrandVersion {{
     background-color: #eff6ff;
     border-radius: 4px;
     padding: 1px 5px;
+    margin-left: 26px;
 }}
 
 QPushButton#NavItem {{
@@ -50,7 +51,7 @@ QPushButton#NavItem {{
     font-size: 13px;
     font-weight: 600;
     text-align: left;
-    padding: 9px 12px;
+    padding: 8px 10px;
 }}
 
 QPushButton#NavItem:hover {{

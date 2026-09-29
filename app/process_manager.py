@@ -8,6 +8,7 @@ from enum import Enum
 from PySide6.QtCore import QObject, QProcess, Signal
 
 from .config import AppConfig
+from .elevate import is_admin
 from .paths import bin_dir, tun2proxy_bin
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -82,6 +83,13 @@ class ProcessManager(QObject):
     def start(self, config: AppConfig) -> str | None:
         if self.is_running():
             return "代理已在运行"
+
+        if not is_admin():
+            if sys.platform == "win32":
+                return "需要管理员权限才能创建 Wintun 网卡。请以管理员身份重新启动本程序后再试。"
+            if sys.platform == "darwin":
+                return "需要管理员权限才能创建 TUN 设备。请重新启动本程序并在提示时输入密码。"
+            return "需要 root 权限才能创建 TUN 设备。请使用 sudo / pkexec 重新启动本程序后再试。"
 
         err = validate_proxy_url(config.proxy_url)
         if err:
